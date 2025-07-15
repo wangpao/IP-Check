@@ -1,10 +1,9 @@
 #!/bin/bash
-script_version="v2025-06-29-Final-Minimal"
+script_version="v2025-06-29-Final-NAT-Fix"
 
 # --- 1. 固化的配置 ---
-readonly DEFAULT_INTERFACE="eth0" # 默认检测 eth0
-readonly FULL_IP=1                # 默认显示完整IP
-readonly YY="cn"                  # 语言固定为中文
+readonly FULL_IP=1 # 默认显示完整IP
+readonly YY="cn"   # 语言固定为中文
 
 # --- 2. 依赖检测 ---
 check_and_install_dependencies(){
@@ -35,7 +34,8 @@ declare -A tiktok disney netflix youtube amazon spotify chatgpt
 declare -A sinfo shead sbasic stype sscore sfactor smedia stail
 declare ibar=0 bar_pid ibar_step=0 main_pid=$$ PADDING=""
 declare UA_Browser rawgithub Media_Cookie IATA_Database
-declare CurlARG="--interface $DEFAULT_INTERFACE"
+# --- 核心修改：移除接口绑定，让系统自动选择路由 ---
+declare CurlARG=""
 
 # --- 3. 固定的中文语言文本 (已精简) ---
 set_language(){
@@ -100,9 +100,6 @@ check_IP(){
     local ip_type=$2 # 4 or 6
     ibar_step=0
     
-    # 移除原作者服务器的调用
-    # countRunTimes 
-    
     db_maxmind $ip_type
     local mode_lite=0
     if [[ $(echo "$RESPONSE"|jq '.ASN.AutonomousSystemNumber' 2>/dev/null) == "null" ]]; then
@@ -127,10 +124,6 @@ check_IP(){
     MediaUnlockTest_PrimeVideo_Region $ip_type
     MediaUnlockTest_Spotify $ip_type
     OpenAITest $ip_type
-    
-    # 彻底移除邮件和黑名单检测
-    # check_mail
-    # [[ $ip_type -eq 4 ]] && check_dnsbl "$IP" 50
     
     echo -ne "$Font_LineClear" 1>&2
 
@@ -681,7 +674,7 @@ set_language
 
 clear
 
-echo "正在从网卡 '$DEFAULT_INTERFACE' 获取IP地址..."
+echo "正在获取公网IP地址..."
 get_ipv4
 get_ipv6
 
@@ -689,12 +682,12 @@ if [[ -n "$IPV4" ]]; then
     echo "检测到 IPv4 地址: $IPV4"
     check_IP "$IPV4" 4
 else
-    echo "未在网卡 '$DEFAULT_INTERFACE' 上检测到有效的公网 IPv4 地址。"
+    echo "未能检测到有效的公网 IPv4 地址。"
 fi
 
 if [[ -n "$IPV6" ]]; then
     echo "检测到 IPv6 地址: $IPV6"
     check_IP "$IPV6" 6
 else
-    echo "未在网卡 '$DEFAULT_INTERFACE' 上检测到有效的公网 IPv6 地址。"
+    echo "未能检测到有效的公网 IPv6 地址。"
 fi
