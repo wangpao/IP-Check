@@ -1,96 +1,49 @@
 #!/bin/bash
-script_version="v2025-06-29-Custom"
+script_version="v2025-06-29-Minimal"
 
-# --- 1. 简化的系统与依赖检测 (为您优化) ---
-check_bash(){
-    current_bash_version=$(bash --version|head -n 1|awk -F ' ' '{for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+/) {print $i; exit}}'|cut -d . -f 1)
-    if [ "$current_bash_version" -lt "4" ]; then
-        echo "错误：Bash 版本低于 4.0！请先升级 Bash。"
-        # 对于 Ubuntu/Debian: sudo apt-get update && sudo apt-get install --only-upgrade bash
-        exit 1
-    fi
-}
+# --- 1. 固化的配置 (为您深度精简) ---
+# 默认检测 eth0, 如需修改, 请直接更改此处的 "eth0"
+readonly DEFAULT_INTERFACE="eth0"
+# 默认显示完整IP, 不再需要 -f 参数
+readonly FULL_IP=1
+# 语言固定为中文
+readonly YY="cn"
 
-install_dependencies(){
+# --- 2. 极简的依赖检测 (保留核心) ---
+check_and_install_dependencies(){
     if ! jq --version >/dev/null 2>&1 || ! curl --version >/dev/null 2>&1 || ! bc --version >/dev/null 2>&1 || ! nc -h >/dev/null 2>&1 || ! dig -v >/dev/null 2>&1; then
-        echo "检测到缺少必要的依赖，将为您自动安装..."
-        echo -e "需要安装: jq curl bc netcat dnsutils iproute2"
-        if [[ $mode_yes -eq 0 ]]; then
-            read -p "是否继续? (y/n): " choice
-            case "$choice" in
-                y|Y) echo "继续安装..." ;;
-                *) echo "脚本退出。"; exit 0;;
-            esac
-        fi
-        
-        # 直接使用 apt 进行安装
-        sudo apt-get update
-        sudo apt-get install -y jq curl bc netcat-openbsd dnsutils iproute2
+        echo "检测到缺少依赖，将为您自动安装: jq curl bc netcat-openbsd dnsutils iproute2"
+        read -p "是否继续? (y/n): " choice
+        case "$choice" in
+            y|Y)
+                sudo apt-get update
+                sudo apt-get install -y jq curl bc netcat-openbsd dnsutils iproute2
+                ;;
+            *) echo "脚本退出。"; exit 0;;
+        esac
     fi
 }
+check_and_install_dependencies
 
-check_bash
-# --- 颜色与字体定义 (保留) ---
-Font_B="\033[1m"
-Font_D="\033[2m"
-Font_I="\033[3m"
-Font_U="\033[4m"
-Font_Red="\033[31m"
-Font_Green="\033[32m"
-Font_Yellow="\033[33m"
-Font_Blue="\033[34m"
-Font_Cyan="\033[36m"
-Font_White="\033[37m"
-Back_Red="\033[41m"
-Back_Green="\033[42m"
-Back_Yellow="\033[43m"
-Font_Suffix="\033[0m"
-Font_LineClear="\033[2K"
-Font_LineUp="\033[1A"
+# --- 颜色与字体定义 ---
+Font_B="\033[1m"; Font_D="\033[2m"; Font_I="\033[3m"; Font_U="\033[4m"
+Font_Red="\033[31m"; Font_Green="\033[32m"; Font_Yellow="\033[33m"; Font_Blue="\033[34m"
+Font_Cyan="\033[36m"; Font_White="\033[37m"; Back_Red="\033[41m"; Back_Green="\033[42m"
+Back_Yellow="\033[43m"; Font_Suffix="\033[0m"; Font_LineClear="\033[2K"; Font_LineUp="\033[1A"
 
-# --- 全局变量定义 (部分已简化) ---
-declare -A aad
-declare IP=""
-declare IPhide
-declare fullIP=0
-declare YY="cn" # 语言硬编码为中文
+# --- 全局变量 (已大幅简化) ---
+declare IP="" IPV4="" IPV6=""
 declare -A maxmind ipinfo scamalytics ipregistry ipapi abuseipdb ip2location dbip ipwhois ipdata ipqs cloudflare
 declare -A tiktok disney netflix youtube amazon spotify chatgpt
-declare IPV4 IPV6
-declare IPV4check=1 IPV6check=1
-declare IPV4work=0 IPV6work=0
-declare ERRORcode=0
-declare shelp
 declare -A swarn sinfo shead sbasic stype sscore sfactor smedia smail smailstatus stail
-declare mode_no=0 mode_yes=0 mode_lite=0 mode_json=0 mode_output=0
-declare ipjson
-declare ibar=0 bar_pid ibar_step=0
-declare main_pid=$$
-declare PADDING=""
-declare useNIC="" usePROXY="" CurlARG=""
+declare ibar=0 bar_pid ibar_step=0 main_pid=$$ PADDING=""
 declare UA_Browser rawgithub Media_Cookie IATA_Database
+declare -A smail_response # 新增，用于存储邮件服务器响应
+declare CurlARG="--interface $DEFAULT_INTERFACE" # 硬编码使用 eth0
 
-# --- 2. 帮助信息简化 (为您优化) ---
-shelp_lines=(
-"IP 质量体检脚本 (定制版)"
-" "
-"参数运行: bash my_ip_check.sh [-4] [-6] [-f] [-h] [-j] [-i iface] [-n] [-x proxy] [-y]"
-"            -4                             测试 IPv4"
-"            -6                             测试 IPv6"
-"            -f                             报告展示完整IP地址 (推荐为个人使用开启)"
-"            -h                             帮助信息"
-"            -j                             JSON输出"
-"            -i eth0                        指定检测网卡"
-"               ipaddress                   指定检测出口IP"
-"            -n                             跳过系统检测及依赖安装"
-"            -o /path/to/file               输出报告至文件 (json/ansi/txt)"
-"            -x http://proxy:port           指定http/https/socks5代理"
-"            -y                             自动安装依赖，不询问"
-)
-shelp=$(printf "%s\n" "${shelp_lines[@]}")
-
-# --- 3. 语言文本定义 (只保留中文) ---
+# --- 3. 固定的中文语言文本 ---
 set_language(){
+    # ... (省略了语言文本定义，但会包含在下面的完整脚本中)
     swarn[1]="错误：不支持的参数！"
     swarn[2]="错误：IP地址格式错误！"
     swarn[3]="错误：未安装依赖程序，请以root执行此脚本，或者安装sudo命令！"
@@ -115,7 +68,7 @@ set_language(){
     shead[title]="IP质量体检报告："
     shead[title_lite]="IP质量体检报告(Lite)："
     shead[ver]="脚本版本：$script_version"
-    shead[bash]="bash my_ip_check.sh"
+    shead[bash]="bash my_ip_check_minimal.sh (定制版)"
     shead[git]="https://github.com/xykt/IPQuality (原版)"
     shead[time]=$(TZ="Asia/Shanghai" date +"报告时间：%Y-%m-%d %H:%M:%S CST")
     shead[ltitle]=16
@@ -216,106 +169,60 @@ set_language(){
     stail[link]="$Font_I报告链接：$Font_U"
 }
 
-# --- 4. 移除广告和上传报告的功能 (为您优化) ---
-show_ad(){
-    # 此功能已禁用，不再显示广告。
-    :
-}
-
+# --- 4. 移除广告、报告上传、参数解析等非必要功能 ---
 countRunTimes(){
-    # 此功能会连接原作者服务器统计运行次数，出于隐私考虑，您可以选择禁用。
-    # 为了保留"今日检测量"等信息，暂时保留。如需完全禁用，请将此函数内容清空。
     local RunTimes=$(curl $CurlARG -s --max-time 10 "https://hits.xykt.de/ip?action=hit" 2>&1)
-    stail[today]=$(echo "$RunTimes"|jq '.daily')
-    stail[total]=$(echo "$RunTimes"|jq '.total')
+    stail[today]=$(echo "$RunTimes"|jq '.daily' 2>/dev/null)
+    stail[total]=$(echo "$RunTimes"|jq '.total' 2>/dev/null)
 }
 
 check_IP(){
     IP=$1
+    local ip_type=$2 # 4 or 6
     ibar_step=0
-    ipjson='{
-      "Head": [{}], "Info": [{}], "Type": [{}], "Score": [{}], "Factor": [{}], "Media": [{}], "Mail": [{}]
-    }'
-    [[ $2 -eq 4 ]] && hide_ipv4 $IP
-    [[ $2 -eq 6 ]] && hide_ipv6 $IP
+    
+    # 移除 IPhide 逻辑, 因为我们总是显示完整IP
+    
     countRunTimes
-    db_maxmind $2
+    db_maxmind $ip_type
+    local mode_lite=0 # 默认使用完整模式
+    if [[ $(echo "$RESPONSE"|jq '.ASN.AutonomousSystemNumber') == "null" ]]; then
+        mode_lite=1
+    fi
+    
     db_ipinfo
     db_scamalytics
-    [[ $mode_lite -eq 0 ]] && db_ipregistry $2
+    [[ $mode_lite -eq 0 ]] && db_ipregistry $ip_type
     db_ipapi
-    [[ $mode_lite -eq 0 ]] && db_abuseipdb $2
-    db_ip2location $2
+    [[ $mode_lite -eq 0 ]] && db_abuseipdb $ip_type
+    db_ip2location $ip_type
     db_dbip
     db_ipwhois
-    [[ $mode_lite -eq 0 ]] && db_ipdata $2
-    [[ $mode_lite -eq 0 ]] && db_ipqs $2
-    db_cloudflare $2
-    MediaUnlockTest_TikTok $2
-    MediaUnlockTest_DisneyPlus $2
-    MediaUnlockTest_Netflix $2
-    MediaUnlockTest_YouTube_Premium $2
-    MediaUnlockTest_PrimeVideo_Region $2
-    MediaUnlockTest_Spotify $2
-    OpenAITest $2
+    [[ $mode_lite -eq 0 ]] && db_ipdata $ip_type
+    [[ $mode_lite -eq 0 ]] && db_ipqs $ip_type
+    db_cloudflare $ip_type
+    MediaUnlockTest_TikTok $ip_type
+    MediaUnlockTest_DisneyPlus $ip_type
+    MediaUnlockTest_Netflix $ip_type
+    MediaUnlockTest_YouTube_Premium $ip_type
+    MediaUnlockTest_PrimeVideo_Region $ip_type
+    MediaUnlockTest_Spotify $ip_type
+    OpenAITest $ip_type
     check_mail
-    [[ $2 -eq 4 ]] && check_dnsbl "$IP" 50
+    [[ $ip_type -eq 4 ]] && check_dnsbl "$IP" 50
     echo -ne "$Font_LineClear" 1>&2
-    
-    # 移除原有的清屏逻辑 (因为广告没了)
-    
+
+    # 报告输出
     if [[ $mode_lite -eq 0 ]]; then
-        local ip_report=$(show_head; show_basic; show_type; show_score; show_factor; show_media; show_mail $2; show_tail)
+        show_head; show_basic; show_type; show_score; show_factor; show_media; show_mail $ip_type; show_tail
     else
-        local ip_report=$(show_head; show_basic_lite; show_type_lite; show_score; show_factor_lite; show_media; show_mail $2; show_tail)
+        show_head; show_basic_lite; show_type_lite; show_score; show_factor_lite; show_media; show_mail $ip_type; show_tail
     fi
-    
-    save_json
-
-    # --- 核心修改：禁用报告上传 ---
-    # local report_link=$(curl -$2 -s -X POST http://upload.check.place -d "type=ip" --data-urlencode "json=$ipjson" --data-urlencode "content=$ip_report")
-    
-    if [[ $mode_json -eq 0 ]]; then
-        echo -ne "\r$ip_report\n"
-        # --- 核心修改：移除报告链接的显示 ---
-        # [[ $report_link == *"https://Report.Check.Place/"* ]] && echo -ne "\r${stail[link]}$report_link$Font_Suffix\n"
-    else
-        echo -ne "\r$ipjson\n"
-    fi
-    echo -ne "\r\n"
-
-    if [[ $mode_output -eq 1 ]]; then
-        case "$outputfile" in
-            *.[aA][nN][sS][iI]) echo "$ip_report" >> "$outputfile" 2>/dev/null ;;
-            *.[jJ][sS][oO][nN]) echo "$ipjson" >> "$outputfile" 2>/dev/null ;;
-            *) echo -e "$ip_report" | sed 's/\x1b\[[0-9;]*[mGKHF]//g' >> "$outputfile" 2>/dev/null ;;
-        esac
-    fi
-}
-
-get_opts(){
-    # 移除了 -l, -E, -M 参数
-    while getopts "i:o:x:fhjny46" opt; do
-        case $opt in
-            4) IPV6check=0 ;;
-            6) IPV4check=0 ;;
-            f) fullIP=1 ;;
-            h) show_help ;;
-            i) iface="$OPTARG"; useNIC=" --interface $iface"; CurlARG+="$useNIC"; get_ipv4; get_ipv6; is_valid_ipv4 $IPV4; is_valid_ipv6 $IPV6; [[ $IPV4work -eq 0 && $IPV6work -eq 0 ]] && ERRORcode=7 ;;
-            j) mode_json=1 ;;
-            n) mode_no=1 ;;
-            o) mode_output=1; outputfile="$OPTARG"; [[ -z $outputfile ]] && { ERRORcode=1; break; }; [[ -e $outputfile ]] && { ERRORcode=10; break; }; touch "$outputfile" 2>/dev/null || { ERRORcode=11; break; } ;;
-            x) xproxy="$OPTARG"; usePROXY=" -x $xproxy"; CurlARG+="$usePROXY"; get_ipv4; get_ipv6; is_valid_ipv4 $IPV4; is_valid_ipv6 $IPV6; [[ $IPV4work -eq 0 && $IPV6work -eq 0 ]] && ERRORcode=8 ;;
-            y) mode_yes=1 ;;
-            \?) ERRORcode=1 ;;
-        esac
-    done
-    CurlARG="$useNIC$usePROXY"
 }
 
 # --- 从这里开始是原脚本未改动的大量核心功能函数 ---
-# --- 为节省篇幅，这里省略了它们，您需要将原脚本从下一行到 'generate_random_user_agent' 之前的所有函数粘贴到此处 ---
-# (例如: show_progress_bar, kill_progress_bar, generate_dms, db_maxmind, MediaUnlockTest_TikTok, 等等...)
+# --- 您需要将原脚本从 'show_progress_bar' 到 'save_json' 之前的所有函数粘贴到此处 ---
+# (为节省篇幅，此处省略，但在下面的完整代码中会包含)
 # VVVVVV 在此粘贴原脚本的核心函数 VVVVVV
 
 show_progress_bar(){
@@ -334,59 +241,6 @@ done
 }
 kill_progress_bar(){
 kill "$bar_pid" 2>/dev/null&&echo -ne "\r"
-}
-install_packages(){
-local package_manager=$1
-local install_command=$2
-local no_sudo=$3
-echo "Using package manager: $package_manager"
-echo -e "Lacking necessary dependencies, $Font_I${Font_Cyan}jq curl bc netcat dnsutils iproute$Font_Suffix will be installed using $Font_I$Font_Cyan$package_manager$Font_Suffix."
-if [[ $mode_yes -eq 0 ]];then
-prompt=$(printf "Continue? (${Font_Green}y$Font_Suffix/${Font_Red}n$Font_Suffix): ")
-read -p "$prompt" choice
-case "$choice" in
-y|Y|yes|Yes|YES)echo "Continue to execute script..."
-;;
-n|N|no|No|NO)echo "Script exited."
-exit 0
-;;
-*)echo "Invalid input, script exited."
-exit 1
-esac
-else
-echo -e "Detected parameter $Font_Green-y$Font_Suffix. Continue installation..."
-fi
-if [ "$no_sudo" == "no_sudo" ]||[ $(id -u) -eq 0 ];then
-local usesudo=""
-else
-local usesudo="sudo"
-fi
-case $package_manager in
-apt)$usesudo apt update
-$usesudo $install_command jq curl bc netcat-openbsd dnsutils iproute2
-;;
-dnf|yum)$usesudo $install_command epel-release
-$usesudo $package_manager makecache
-$usesudo $install_command jq curl bc nmap-ncat bind-utils iproute
-;;
-pacman)$usesudo pacman -Sy
-$usesudo $install_command jq curl bc gnu-netcat bind-tools iproute2
-;;
-apk)$usesudo apk update
-$usesudo $install_command jq curl bc netcat-openbsd grep bind-tools iproute2
-;;
-pkg)$usesudo $package_manager update
-$usesudo $package_manager $install_command jq curl bc netcat dnsutils iproute
-;;
-brew)eval "$(/opt/homebrew/bin/brew shellenv)"
-$install_command jq curl bc netcat bind
-;;
-zypper)$usesudo zypper refresh
-$usesudo $install_command jq curl bc netcat bind-utils iproute2
-;;
-xbps)$usesudo xbps-install -Sy
-$usesudo $install_command jq curl bc netcat bind-utils iproute2
-esac
 }
 declare -A browsers=(
 [Chrome]="120.0.6087.129 121.0.6167.85 122.0.6261.39 123.0.6312.58 124.0.6367.91 125.0.6422.78"
@@ -434,97 +288,21 @@ rawgithub="https://testingcf.jsdelivr.net/gh/xykt/IPQuality@"
 return 1
 fi
 }
-is_valid_ipv4(){
-local ip=$1
-if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]];then
-IFS='.' read -r -a octets <<<"$ip"
-for octet in "${octets[@]}";do
-if ((octet<0||octet>255));then
-IPV4work=0
-return 1
-fi
-done
-IPV4work=1
-return 0
-else
-IPV4work=0
-return 1
-fi
-}
-is_private_ipv4(){
-local ip_address=$1
-if [[ -z $ip_address ]];then
-return 0
-fi
-if [[ $ip_address =~ ^10\. ]]||[[ $ip_address =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]||[[ $ip_address =~ ^192\.168\. ]]||[[ $ip_address =~ ^127\. ]]||[[ $ip_address =~ ^0\. ]]||[[ $ip_address =~ ^22[4-9]\. ]]||[[ $ip_address =~ ^23[0-9]\. ]];then
-return 0
-fi
-return 1
-}
 get_ipv4(){
-local response
-IPV4=""
-local API_NET=("myip.check.place" "ip.sb" "ping0.cc" "icanhazip.com" "api64.ipify.org" "ifconfig.co" "ident.me")
-for p in "${API_NET[@]}";do
-response=$(curl $CurlARG -s4 --max-time 2 "$p")
-if [[ $? -eq 0 && ! $response =~ error && -n $response ]];then
-IPV4="$response"
-break
-fi
-done
-}
-hide_ipv4(){
-if [[ -n $1 ]];then
-IFS='.' read -r -a ip_parts <<<"$1"
-IPhide="${ip_parts[0]}.${ip_parts[1]}.*.*"
-else
-IPhide=""
-fi
-}
-is_valid_ipv6(){
-local ip=$1
-if [[ $ip =~ ^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,7}:$ || $ip =~ ^:([0-9a-fA-F]{1,4}:){1,7}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$ || $ip =~ ^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$ || $ip =~ ^:((:[0-9a-fA-F]{1,4}){1,7}|:)$ || $ip =~ ^fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}$ || $ip =~ ^::(ffff(:0{1,4}){0,1}:){0,1}(([0-9]{1,3}\.){3}[0-9]{1,3})$ || $ip =~ ^([0-9a-fA-F]{1,4}:){1,4}:(([0-9]{1,3}\.){3}[0-9]{1,3})$ ]];then
-IPV6work=1
-return 0
-else
-IPV6work=0
-return 1
-fi
-}
-is_private_ipv6(){
-local address=$1
-if [[ -z $address ]];then
-return 0
-fi
-if [[ $address =~ ^fe80: ]]||[[ $address =~ ^fc00: ]]||[[ $address =~ ^fd00: ]]||[[ $address =~ ^2001:db8: ]]||[[ $address == ::1 ]]||[[ $address =~ ^::ffff: ]]||[[ $address =~ ^2002: ]]||[[ $address =~ ^2001: ]];then
-return 0
-fi
-return 1
+    local response=$(curl $CurlARG -s4 --max-time 2 myip.check.place)
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        IPV4="$response"
+    else
+        IPV4=""
+    fi
 }
 get_ipv6(){
-local response
-IPV6=""
-local API_NET=("myip.check.place" "ip.sb" "ping0.cc" "icanhazip.com" "api64.ipify.org" "ifconfig.co" "ident.me")
-for p in "${API_NET[@]}";do
-response=$(curl $CurlARG -s6k --max-time 2 "$p")
-if [[ $? -eq 0 && ! $response =~ error && -n $response ]];then
-IPV6="$response"
-break
-fi
-done
-}
-hide_ipv6(){
-if [[ -n $1 ]];then
-local expanded_ip=$(echo "$1"|sed 's/::/:0000:0000:0000:0000:0000:0000:0000:0000:/g'|cut -d ':' -f1-8)
-IFS=':' read -r -a ip_parts <<<"$expanded_ip"
-while [ ${#ip_parts[@]} -lt 8 ];do
-ip_parts+=(0000)
-done
-IPhide="${ip_parts[0]:-0}:${ip_parts[1]:-0}:${ip_parts[2]:-0}:*:*:*:*:*"
-IPhide=$(echo "$IPhide"|sed 's/:0\{1,\}/:/g'|sed 's/::\+/:/g')
-else
-IPhide=""
-fi
+    local response=$(curl $CurlARG -s6k --max-time 2 myip.check.place)
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        IPV6="$response"
+    else
+        IPV6=""
+    fi
 }
 calculate_display_width(){
 local string="$1"
@@ -609,7 +387,7 @@ show_progress_bar "$temp_info" $((40-8-${sinfo[ldatabase]}))&
 bar_pid="$!"&&disown "$bar_pid"
 trap "kill_progress_bar" RETURN
 maxmind=()
-local RESPONSE=$(curl $CurlARG -Ls -$1 -m 10 "https://ipinfo.check.place/$IP?lang=$YY")
+RESPONSE=$(curl $CurlARG -Ls -$1 -m 10 "https://ipinfo.check.place/$IP?lang=$YY")
 echo "$RESPONSE"|jq . >/dev/null 2>&1||RESPONSE=""
 if [[ -z $RESPONSE ]];then
 mode_lite=1
@@ -1611,11 +1389,10 @@ fi
 }
 check_mail(){
 ss -tano|grep -q ":25\b"&&smail[local]=2||smail[local]=0
-if [[ smail[local] -ne 2 && -z $usePROXY ]];then
+if [[ smail[local] -ne 2 ]];then
 local response=$(timeout 10 bash -c "echo -e 'QUIT\r\n' | nc -s $IP -p25 -w9 smtp.mailgun.org 25 2>&1")
 [[ $response == *"220"* ]]&&smail[local]=1
 fi
-[[ -n $usePROXY ]]&&smail[local]=0
 smail[remote]=0
 services=("Gmail" "Outlook" "Yahoo" "Apple" "QQ" "MailRU" "AOL" "GMX" "MailCOM" "163" "Sohu" "Sina")
 for service in "${services[@]}";do
@@ -1671,7 +1448,7 @@ smail[sdnsbl]="$Font_Cyan${smail[dnsbl]}  ${smail[available]}${smail[t]}   ${sma
 show_head(){
 echo -ne "\r$(printf '%72s'|tr ' ' '#')\n"
 if [[ $mode_lite -eq 0 ]];then
-if [ $fullIP -eq 1 ];then
+if [ $FULL_IP -eq 1 ];then
 calc_padding "$(printf '%*s' "${shead[ltitle]}" '')$IP" 72
 echo -ne "\r$PADDING$Font_B${shead[title]}$Font_Cyan$IP$Font_Suffix\n"
 else
@@ -1679,7 +1456,7 @@ calc_padding "$(printf '%*s' "${shead[ltitle]}" '')$IPhide" 72
 echo -ne "\r$PADDING$Font_B${shead[title]}$Font_Cyan$IPhide$Font_Suffix\n"
 fi
 else
-if [ $fullIP -eq 1 ];then
+if [ $FULL_IP -eq 1 ];then
 calc_padding "$(printf '%*s' "${shead[ltitle_lite]}" '')$IP" 72
 echo -ne "\r$PADDING$Font_B${shead[title_lite]}$Font_Cyan$IP$Font_Suffix\n"
 else
@@ -2017,223 +1794,9 @@ echo -ne "\r$(printf '%72s'|tr ' ' '=')\n"
 echo -ne "\r$Font_I${stail[stoday]}${stail[today]}${stail[stotal]}${stail[total]}${stail[thanks]} $Font_Suffix\n"
 echo -e ""
 }
-show_help(){
-echo -ne "\r$shelp\n"
-exit 0
-}
 read_ref(){
 Media_Cookie=$(curl $CurlARG -sL --retry 3 --max-time 10 "${rawgithub}main/ref/cookies.txt")
 IATA_Database="${rawgithub}main/ref/iata-icao.csv"
-}
-clean_ansi(){
-local input="$1"
-input=$(echo "$input"|sed 's/\\033/\x1b/g')
-input=$(echo "$input"|sed 's/\x1b\[[0-9;]*m//g')
-input=$(echo "$input"|sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-echo -n "$input"
-}
-factor_bool(){
-local tmp_txt=""
-if [[ $1 == "true" ]];then
-tmp_txt+=".Factor |= map(. * { $3: { $2: true } }) | "
-elif [[ $1 == "false" ]];then
-tmp_txt+=".Factor |= map(. * { $3: { $2: false } }) | "
-elif [ ${#1} -eq 2 ];then
-tmp_txt+=".Factor |= map(. * { $3: { $2: \"$1\" } }) | "
-else
-tmp_txt+=".Factor |= map(. * { $3: { $2: null } }) | "
-fi
-[[ -z $tmp_txt ]]&&tmp_txt="null"
-echo "$tmp_txt"
-}
-save_json(){
-local head_updates=""
-local basic_updates=""
-local type_updates=""
-local score_updates=""
-local factor_updates=""
-local media_updates=""
-local mail_updates=""
-if [ $fullIP -eq 1 ];then
-head_updates+=".Head |= map(. + { IP: \"${IP:-null}\" }) | "
-else
-head_updates+=".Head |= map(. + { IP: \"${IPhide:-null}\" }) | "
-fi
-head_updates+=".Head |= map(. + { Command: \"${shead[bash]:-null}\" }) | "
-head_updates+=".Head |= map(. + { GitHub: \"${shead[git]:-null}\" }) | "
-head_updates+=".Head |= map(. + { Time: \"${shead[time]:-null}\" }) | "
-head_updates+=".Head |= map(. + { Version: \"${shead[ver]:-null}\" }) | "
-if [ $mode_lite -eq 0 ];then
-basic_updates+=".Info |= map(. + { ASN: \"${maxmind[asn]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Organization: \"${maxmind[org]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Latitude: \"${maxmind[lat]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Longitude: \"${maxmind[lon]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { DMS: \"${maxmind[dms]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Map: \"${maxmind[map]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { TimeZone: \"${maxmind[timezone]:-null}\" }) | "
-basic_updates+=".Info |= map(. * { City: { Name: \"${maxmind[city]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { City: { PostalCode: \"${maxmind[post]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { City: { SubCode: \"${maxmind[subcode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { City: { Subdivisions: \"${maxmind[sub]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { Region: { Code: \"${maxmind[countrycode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { Region: { Name: \"${maxmind[country]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { Continent: { Code: \"${maxmind[continentcode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { Continent: { Name: \"${maxmind[continent]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { RegisteredRegion: { Code: \"${maxmind[regcountrycode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { RegisteredRegion: { Name: \"${maxmind[regcountry]:-null}\" } }) | "
-if [[ -n ${maxmind[countrycode]} && ${maxmind[countrycode]} != "null" ]];then
-if [ "${maxmind[countrycode]}" == "${maxmind[regcountrycode]}" ];then
-basic_updates+=".Info |= map(. + { Type: \"$(clean_ansi "${sbasic[type0]:-null}")\" }) | "
-else
-basic_updates+=".Info |= map(. + { Type: \"$(clean_ansi "${sbasic[type1]:-null}")\" }) | "
-fi
-else
-basic_updates+='.Info |= map(. + { Type: "null" }) | '
-fi
-else
-basic_updates+=".Info |= map(. + { ASN: \"${ipinfo[asn]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Organization: \"${ipinfo[org]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Latitude: \"${ipinfo[lat]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Longitude: \"${ipinfo[lon]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { DMS: \"${ipinfo[dms]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { Map: \"${ipinfo[map]:-null}\" }) | "
-basic_updates+=".Info |= map(. + { TimeZone: \"${ipinfo[timezone]:-null}\" }) | "
-basic_updates+=".Info |= map(. * { City: { Name: \"${ipinfo[city]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { City: { PostalCode: \"${ipinfo[post]:-null}\" } }) | "
-basic_updates+='.Info |= map(. * { City: { SubCode: "null" } }) | '
-basic_updates+='.Info |= map(. * { City: { Subdivisions: "null" } }) | '
-basic_updates+=".Info |= map(. * { Region: { Code: \"${ipinfo[countrycode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { Region: { Name: \"${ipinfo[country]:-null}\" } }) | "
-basic_updates+='.Info |= map(. * { Continent: { Code: "null" } }) | '
-basic_updates+=".Info |= map(. * { Continent: { Name: \"${ipinfo[continent]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { RegisteredRegion: { Code: \"${ipinfo[regcountrycode]:-null}\" } }) | "
-basic_updates+=".Info |= map(. * { RegisteredRegion: { Name: \"${ipinfo[regcountry]:-null}\" } }) | "
-if [[ -n ${ipinfo[countrycode]} && ${ipinfo[countrycode]} != "null" ]];then
-if [ "${ipinfo[countrycode]}" == "${ipinfo[regcountrycode]}" ];then
-basic_updates+=".Info |= map(. + { Type: \"$(clean_ansi "${sbasic[type0]:-null}")\" }) | "
-else
-basic_updates+=".Info |= map(. + { Type: \"$(clean_ansi "${sbasic[type1]:-null}")\" }) | "
-fi
-else
-basic_updates+='.Info |= map(. + { Type: "null" }) | '
-fi
-fi
-type_updates+=".Type |= map(. * { Usage: { IPinfo: \"$(clean_ansi "${ipinfo[susetype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Usage: { ipregistry: \"$(clean_ansi "${ipregistry[susetype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Usage: { ipapi: \"$(clean_ansi "${ipapi[susetype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Usage: { AbuseIPDB: \"$(clean_ansi "${abuseipdb[susetype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Usage: { IP2LOCATION: \"$(clean_ansi "${ip2location[susetype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Company: { IPinfo: \"$(clean_ansi "${ipinfo[scomtype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Company: { ipregistry: \"$(clean_ansi "${ipregistry[scomtype]:-null}")\" } }) | "
-type_updates+=".Type |= map(. * { Company: { ipapi: \"$(clean_ansi "${ipapi[scomtype]:-null}")\" } }) | "
-score_updates+=".Score |= map(. + { SCAMALYTICS: \"${scamalytics[score]:-null}\" }) | "
-score_updates+=".Score |= map(. + { ipapi: \"${ipapi[score]:-null}\" }) | "
-score_updates+=".Score |= map(. + { AbuseIPDB: \"${abuseipdb[score]:-null}\" }) | "
-score_updates+=".Score |= map(. + { IPQS: \"${ipapi[ipqs]:-null}\" }) | "
-score_updates+=".Score |= map(. + { Cloudflare: \"${cloudflare[score]:-null}\" }) | "
-score_updates+=".Score |= map(. + { DBIP: \"${dbip[score]:-null}\" }) | "
-factor_updates+=$(factor_bool "${ip2location[countrycode]}" "IP2LOCATION" "CountryCode")
-factor_updates+=$(factor_bool "${ipapi[countrycode]}" "ipapi" "CountryCode")
-factor_updates+=$(factor_bool "${ipregistry[countrycode]}" "ipregistry" "CountryCode")
-factor_updates+=$(factor_bool "${ipqs[countrycode]}" "IPQS" "CountryCode")
-factor_updates+=$(factor_bool "${scamalytics[countrycode]}" "SCAMALYTICS" "CountryCode")
-factor_updates+=$(factor_bool "${ipdata[countrycode]}" "ipdata" "CountryCode")
-factor_updates+=$(factor_bool "${ipinfo[countrycode]}" "IPinfo" "CountryCode")
-factor_updates+=$(factor_bool "${ipwhois[countrycode]}" "IPWHOIS" "CountryCode")
-factor_updates+=$(factor_bool "${ip2location[proxy]}" "IP2LOCATION" "Proxy")
-factor_updates+=$(factor_bool "${ipapi[proxy]}" "ipapi" "Proxy")
-factor_updates+=$(factor_bool "${ipregistry[proxy]}" "ipregistry" "Proxy")
-factor_updates+=$(factor_bool "${ipqs[proxy]}" "IPQS" "Proxy")
-factor_updates+=$(factor_bool "${scamalytics[proxy]}" "SCAMALYTICS" "Proxy")
-factor_updates+=$(factor_bool "${ipdata[proxy]}" "ipdata" "Proxy")
-factor_updates+=$(factor_bool "${ipinfo[proxy]}" "IPinfo" "Proxy")
-factor_updates+=$(factor_bool "${ipwhois[proxy]}" "IPWHOIS" "Proxy")
-factor_updates+=$(factor_bool "${ip2location[tor]}" "IP2LOCATION" "Tor")
-factor_updates+=$(factor_bool "${ipapi[tor]}" "ipapi" "Tor")
-factor_updates+=$(factor_bool "${ipregistry[tor]}" "ipregistry" "Tor")
-factor_updates+=$(factor_bool "${ipqs[tor]}" "IPQS" "Tor")
-factor_updates+=$(factor_bool "${scamalytics[tor]}" "SCAMALYTICS" "Tor")
-factor_updates+=$(factor_bool "${ipdata[tor]}" "ipdata" "Tor")
-factor_updates+=$(factor_bool "${ipinfo[tor]}" "IPinfo" "Tor")
-factor_updates+=$(factor_bool "${ipwhois[tor]}" "IPWHOIS" "Tor")
-factor_updates+=$(factor_bool "${ip2location[vpn]}" "IP2LOCATION" "VPN")
-factor_updates+=$(factor_bool "${ipapi[vpn]}" "ipapi" "VPN")
-factor_updates+=$(factor_bool "${ipregistry[vpn]}" "ipregistry" "VPN")
-factor_updates+=$(factor_bool "${ipqs[vpn]}" "IPQS" "VPN")
-factor_updates+=$(factor_bool "${scamalytics[vpn]}" "SCAMALYTICS" "VPN")
-factor_updates+=$(factor_bool "${ipdata[vpn]}" "ipdata" "VPN")
-factor_updates+=$(factor_bool "${ipinfo[vpn]}" "IPinfo" "VPN")
-factor_updates+=$(factor_bool "${ipwhois[vpn]}" "IPWHOIS" "VPN")
-factor_updates+=$(factor_bool "${ip2location[server]}" "IP2LOCATION" "Server")
-factor_updates+=$(factor_bool "${ipapi[server]}" "ipapi" "Server")
-factor_updates+=$(factor_bool "${ipregistry[server]}" "ipregistry" "Server")
-factor_updates+=$(factor_bool "${ipqs[server]}" "IPQS" "Server")
-factor_updates+=$(factor_bool "${scamalytics[server]}" "SCAMALYTICS" "Server")
-factor_updates+=$(factor_bool "${ipdata[server]}" "ipdata" "Server")
-factor_updates+=$(factor_bool "${ipinfo[server]}" "IPinfo" "Server")
-factor_updates+=$(factor_bool "${ipwhois[server]}" "IPWHOIS" "Server")
-factor_updates+=$(factor_bool "${ip2location[abuser]}" "IP2LOCATION" "Abuser")
-factor_updates+=$(factor_bool "${ipapi[abuser]}" "ipapi" "Abuser")
-factor_updates+=$(factor_bool "${ipregistry[abuser]}" "ipregistry" "Abuser")
-factor_updates+=$(factor_bool "${ipqs[abuser]}" "IPQS" "Abuser")
-factor_updates+=$(factor_bool "${scamalytics[abuser]}" "SCAMALYTICS" "Abuser")
-factor_updates+=$(factor_bool "${ipdata[abuser]}" "ipdata" "Abuser")
-factor_updates+=$(factor_bool "${ipinfo[abuser]}" "IPinfo" "Abuser")
-factor_updates+=$(factor_bool "${ipwhois[abuser]}" "IPWHOIS" "Abuser")
-factor_updates+=$(factor_bool "${ip2location[robot]}" "IP2LOCATION" "Robot")
-factor_updates+=$(factor_bool "${ipapi[robot]}" "ipapi" "Robot")
-factor_updates+=$(factor_bool "${ipregistry[robot]}" "ipregistry" "Robot")
-factor_updates+=$(factor_bool "${ipqs[robot]}" "IPQS" "Robot")
-factor_updates+=$(factor_bool "${scamalytics[robot]}" "SCAMALYTICS" "Robot")
-factor_updates+=$(factor_bool "${ipdata[robot]}" "ipdata" "Robot")
-factor_updates+=$(factor_bool "${ipinfo[robot]}" "IPinfo" "Robot")
-factor_updates+=$(factor_bool "${ipwhois[robot]}" "IPWHOIS" "Robot")
-media_updates+=".Media |= map(. * { TikTok: { Status: \"$(clean_ansi "${tiktok[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { DisneyPlus: { Status: \"$(clean_ansi "${disney[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Netflix: { Status: \"$(clean_ansi "${netflix[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Youtube: { Status: \"$(clean_ansi "${youtube[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { AmazonPrimeVideo: { Status: \"$(clean_ansi "${amazon[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Spotify: { Status: \"$(clean_ansi "${spotify[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { ChatGPT: { Status: \"$(clean_ansi "${chatgpt[ustatus]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { TikTok: { Region: \"$(clean_ansi "${tiktok[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { DisneyPlus: { Region: \"$(clean_ansi "${disney[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { Netflix: { Region: \"$(clean_ansi "${netflix[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { Youtube: { Region: \"$(clean_ansi "${youtube[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { AmazonPrimeVideo: { Region: \"$(clean_ansi "${amazon[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { Spotify: { Region: \"$(clean_ansi "${spotify[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { ChatGPT: { Region: \"$(clean_ansi "${chatgpt[uregion]//[][]/}")\" } }) | "
-media_updates+=".Media |= map(. * { TikTok: { Type: \"$(clean_ansi "${tiktok[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { DisneyPlus: { Type: \"$(clean_ansi "${disney[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Netflix: { Type: \"$(clean_ansi "${netflix[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Youtube: { Type: \"$(clean_ansi "${youtube[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { AmazonPrimeVideo: { Type: \"$(clean_ansi "${amazon[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { Spotify: { Type: \"$(clean_ansi "${spotify[utype]:-null}")\" } }) | "
-media_updates+=".Media |= map(. * { ChatGPT: { Type: \"$(clean_ansi "${chatgpt[utype]:-null}")\" } }) | "
-if [[ ${smail[local]} -eq 1 ]];then
-mail_updates+=".Mail |= map(. + { Port25: true }) | "
-for service in "${services[@]}";do
-if [[ ${smailstatus[$service]} == "true" ]];then
-mail_updates+=".Mail |= map(. + { \"$service\": true }) | "
-else
-mail_updates+=".Mail |= map(. + { \"$service\": false }) | "
-fi
-done
-elif [[ ${smail[local]} -eq 2 ]];then
-mail_updates+=".Mail |= map(. + { Port25: null }) | "
-for service in "${services[@]}";do
-mail_updates+=".Mail |= map(. + { \"$service\": null }) | "
-done
-else
-mail_updates+=".Mail |= map(. + { Port25: false }) | "
-for service in "${services[@]}";do
-mail_updates+=".Mail |= map(. + { \"$service\": false }) | "
-done
-fi
-mail_updates+=".Mail |= map(. * { DNSBlacklist: { Total: ${smail[t]:-null} } }) | "
-mail_updates+=".Mail |= map(. * { DNSBlacklist: { Clean: ${smail[c]:-null} } }) | "
-mail_updates+=".Mail |= map(. * { DNSBlacklist: { Marked: ${smail[m]:-null} } }) | "
-mail_updates+=".Mail |= map(. * { DNSBlacklist: { Blacklisted: ${smail[b]:-null} } }) | "
-ipjson=$(echo "$ipjson"|jq "$head_updates$basic_updates$type_updates$score_updates$factor_updates$media_updates$mail_updates.")
 }
 
 # --- 脚本主执行流程 ---
@@ -2241,21 +1804,24 @@ generate_random_user_agent
 adapt_locale
 check_connectivity
 read_ref
-get_ipv4
-get_ipv6
-is_valid_ipv4 $IPV4
-is_valid_ipv6 $IPV6
-get_opts "$@"
-[[ $mode_no -eq 0 ]] && install_dependencies
-set_language # 设置中文文本
-
-if [[ $ERRORcode -ne 0 ]]; then
-    echo -ne "\r$Font_B$Font_Red${swarn[$ERRORcode]}$Font_Suffix\n"
-    exit $ERRORcode
-fi
+set_language
 
 clear
-# show_ad # 已禁用广告
 
-[[ $IPV4work -ne 0 && $IPV4check -ne 0 ]] && check_IP "$IPV4" 4
-[[ $IPV6work -ne 0 && $IPV6check -ne 0 ]] && check_IP "$IPV6" 6
+echo "正在从网卡 '$DEFAULT_INTERFACE' 获取IP地址..."
+get_ipv4
+get_ipv6
+
+if [[ -n "$IPV4" ]]; then
+    echo "检测到 IPv4 地址: $IPV4"
+    check_IP "$IPV4" 4
+else
+    echo "未在网卡 '$DEFAULT_INTERFACE' 上检测到有效的公网 IPv4 地址。"
+fi
+
+if [[ -n "$IPV6" ]]; then
+    echo "检测到 IPv6 地址: $IPV6"
+    check_IP "$IPV6" 6
+else
+    echo "未在网卡 '$DEFAULT_INTERFACE' 上检测到有效的公网 IPv6 地址。"
+fi
